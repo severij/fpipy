@@ -148,14 +148,14 @@ def cfa_stack_to_da(
     return cfa_da
 
 
-def raw_to_radiance(dataset, pattern=None, dm_method='bilinear'):
+def raw_to_radiance(ds, pattern=None, dm_method='bilinear'):
     """Performs demosaicing and computes radiance from RGB values.
 
     Parameters
     ----------
-    dataset : xarray.Dataset
-        Requires data to be found via dataset.cfa, dataset.npeaks,
-        dataset.sinvs, dataset.wavelength, dataset.fwhm and dataset.exposure.
+    ds : xarray.Dataset
+        Requires data to be found via ds.cfa, ds.npeaks,
+        ds.sinvs, ds.wavelength, ds.fwhm and ds.exposure.
 
     pattern : BayerPattern or str, optional
         Bayer pattern used to demosaic the CFA.
@@ -175,35 +175,54 @@ def raw_to_radiance(dataset, pattern=None, dm_method='bilinear'):
         Passes along relevant attributes from input dataset.
     """
 
-    layers = dataset.cfa
+    layers = ds[c.cfa_data]
 
     if pattern is None:
-        pattern = dataset.bayer_pattern
+        pattern = ds[c.cfa_data].attrs[c.cfa_pattern_attribute]
 
     radiance = {}
 
-    for layer in layers:
+    for idx, layer in enumerate(layers):
+        layer = subtract_dark(layer, ds[c.dark_reference_data])
         demo = demosaic(layer, pattern, dm_method)
 
-        for n in range(1, dataset.npeaks.sel(band=layer.band).values + 1):
-            data = dataset.sel(band=layer.band, peak=n)
-
-            rad = data.sinvs.dot(demo)/data.exposure
-
-            rad.coords['wavelength'] = data.wavelength
-            rad.coords['fwhm'] = data.fwhm
-            rad = rad.drop('peak')
-            rad = rad.drop('band')
-            radiance[float(rad.wavelength)] = rad
+        for n in range(0, ds[c.number_of_peaks].isel({c.image_index: idx}).values):
+            data = ds.isel({c.image_index: idx, c.peak_coord: n})
+            rad = data[c.sinv_data].dot(demo) / data[c.cfa_data].attrs[c.camera_exposure]
+            rad.coords[c.wavelength_data] = data[c.wavelength_data]
+            rad.coords[c.fwhm_data] = data[c.fwhm_data]
+            rad = rad.drop([c.peak_coord, c.image_index])
+            print(rad)
+            radiance[float(rad[c.wavelength_data])] = rad
 
     radiance = xr.concat([radiance[key] for key in sorted(radiance)],
-                         dim='wavelength',
-                         coords=['wavelength', 'fwhm'])
-    radiance.attrs = {key: value for key, value in dataset.attrs.items()
-                      if key not in ['dark_layer_included', 'bayer_pattern']}
+                         dim=c.wavelength_data,
+                         coords=[c.wavelength_data, c.fwhm_data])
+    radiance.attrs = {key: value for key, value in ds.attrs.items()
+                      if key not in [c.dc_included_attr, c.cfa_pattern_attribute]}
     radiance.name = 'radiance'
 
     return radiance
+
+        # for n in range(1, dataset.npeaks.sel(band=layer.band).values + 1):
+        #     data = dataset.sel(band=layer.band, peak=n)
+
+        #     rad = data.sinvs.dot(demo)/data.exposure
+
+        #     rad.coords['wavelength'] = data.wavelength
+        #     rad.coords['fwhm'] = data.fwhm
+        #     rad = rad.drop('peak')
+        #     rad = rad.drop('band')
+        #     radiance[float(rad.wavelength)] = rad
+
+    #radiance = xr.concat([radiance[key] for key in sorted(radiance)],
+    #                     dim='wavelength',
+    #                     coords=['wavelength', 'fwhm'])
+    #radiance.attrs = {key: value for key, value in dataset.attrs.items()
+    #                  if key not in ['dark_layer_included', 'bayer_pattern']}
+    #radiance.name = 'radiance'
+
+    #return radiance
 
 
 def raw_to_radiance2(dataset, dm_method='bilinear'):
