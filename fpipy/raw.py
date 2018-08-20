@@ -192,7 +192,6 @@ def raw_to_radiance(ds, pattern=None, dm_method='bilinear'):
             rad.coords[c.wavelength_data] = data[c.wavelength_data]
             rad.coords[c.fwhm_data] = data[c.fwhm_data]
             rad = rad.drop([c.peak_coord, c.image_index])
-            print(rad)
             radiance[float(rad[c.wavelength_data])] = rad
 
     radiance = xr.concat([radiance[key] for key in sorted(radiance)],
